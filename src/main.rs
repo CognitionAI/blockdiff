@@ -56,6 +56,11 @@ const MAGIC: &[u8; 8] = b"BDIFFv1\0";
 /// Standard block size used for alignment (4 KiB)
 const BLOCK_SIZE: usize = 4096;
 
+/// Calculate padding size needed to align to block boundary
+fn calculate_padding_size(header_size: usize) -> usize {
+    (BLOCK_SIZE - (header_size % BLOCK_SIZE)) % BLOCK_SIZE
+}
+
 /// Represents the header of a bdiff file. The file format is:
 /// - Header:
 ///   - 8 bytes: magic string ("BDIFFv1\0")
@@ -134,7 +139,7 @@ fn get_different_ranges(
     let mut diff_ranges = Vec::new();
 
     // Get fiemap for target file
-    let mut target_extents: Vec<_> = fiemap::fiemap(target_file)?.collect::<Result<Vec<_>, _>>()?;
+    let mut target_extents = fiemap::fiemap(target_file)?.collect::<Result<Vec<_>, _>>()?;
     target_extents.sort_by_key(|e| e.fe_logical);
 
     // Check for any unsafe/unsupported flags
@@ -195,8 +200,7 @@ fn get_different_ranges(
     }
 
     // Get fiemap for base file
-    let mut base_extents: Vec<_> =
-        fiemap::fiemap(base_file.unwrap())?.collect::<Result<Vec<_>, _>>()?;
+    let mut base_extents = fiemap::fiemap(base_file.unwrap())?.collect::<Result<Vec<_>, _>>()?;
     base_extents.sort_by_key(|e| e.fe_logical);
 
     // Total size of target file
@@ -401,7 +405,7 @@ fn create_diff(
     // 5) Pad with zeros to align header to block boundary
     let header_size = bincode::serialized_size(&header)
         .map_err(|e| Error::new(std::io::ErrorKind::Other, e))? as usize;
-    let padding_size = (BLOCK_SIZE - (header_size % BLOCK_SIZE)) % BLOCK_SIZE;
+    let padding_size = calculate_padding_size(header_size);
     let padding = vec![0u8; padding_size];
     diff_out.write_all(&padding)?;
 
@@ -499,7 +503,7 @@ fn apply_diff(bdiff_input: &str, target_file: &str, base_file: Option<&str>) -> 
     // Skip padding to align with block boundary
     let header_size = bincode::serialized_size(&header)
         .map_err(|e| Error::new(std::io::ErrorKind::Other, e))? as usize;
-    let padding_size = (BLOCK_SIZE - (header_size % BLOCK_SIZE)) % BLOCK_SIZE;
+    let padding_size = calculate_padding_size(header_size);
     diff_in.seek(std::io::SeekFrom::Current(padding_size as i64))?;
 
     // Apply each range
@@ -602,7 +606,7 @@ fn debug_viewer(input_file: &str, offset_str: Option<&str>) -> Result<(), Error>
     } else {
         println!("File: {}", input_file);
 
-        let mut extents: Vec<_> = fiemap::fiemap(input_file)?.collect::<Result<Vec<_>, _>>()?;
+        let mut extents = fiemap::fiemap(input_file)?.collect::<Result<Vec<_>, _>>()?;
         extents.sort_by_key(|e| e.fe_logical);
 
         let total_size: u64 = extents.iter().map(|e| e.fe_length).sum();
