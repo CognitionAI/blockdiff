@@ -2,6 +2,8 @@
 
 Fast block-level file diffs (e.g. for VM disk images) using CoW filesystem metadata
 
+Check out the technical writeup [here](https://cognition.ai/blog/blockdiff).
+
 ## Usage
 
 ### File snapshots
